@@ -1,0 +1,102 @@
+#The scraper for now just checks the base table, loads the tickers, creates the dB and the xpath and urls for 1st ticker,
+#scraps the url appropriately and stores it in the dB perfectly. But unloading of 2nd ticker doesn't start....
+
+
+from webscraping import download, xpath
+import datetime
+import time
+import shutil
+import sqlite3
+import threading
+
+# Classes and Methods----------------------
+
+#RUN to call MAIN -----------------------------
+
+def run(ticker,conn1,cursor1):
+    tbName=ticker.replace(".","") + str(str(datetime.date.today()).replace("-",""))
+    now = datetime.datetime.now()
+    printIt(now,PFlag)
+    'If the market is open, call main to start the data collection'
+    while now <= nseEnd:
+        main(conn1,cursor1,tbName,ticker)
+        'Sleep for 5 seconds to keep sampling frequency constant'
+        time.sleep(5)
+        now = datetime.datetime.now()
+    cursor1.close()
+
+def main(conn1,cursor1,tbName,ticker):
+    'Steps: 1-Remove the folder to enable html refresh; 2-create the xpath etc for current tickers; 3-call to insert the table with current value'
+    shutil.rmtree('C:\Python27\.webscrapS3',ignore_errors=True)
+    xpath1 = """//div[@class="yfi_rt_quote_summary_rt_top"]//span[@class="time_rtq_ticker"]//span[@id="yfs_l84_""" + ticker.lower() + "]/"
+    url = 'http://in.finance.yahoo.com/q?s=' + ticker
+    D = download.Download()
+    html = D.get(url)
+    printIt(html,"N")
+    for row1 in xpath.search(html, xpath1):
+        insertTb(conn1,cursor1,tbName,row1.replace(",", ""),ticker)
+        printIt(str(row1+" " +ticker),"Y")
+    
+
+#class dbOp:
+def insertTb(conn1,cursor1,tbName,row,ticker):
+    #cursor2 = conn1.cursor()
+    cursor1.execute("INSERT INTO " + tbName + " VALUES " + "(\"" + ticker + "\",\"" + str(datetime.datetime.now()) + "\"," + str(row) + ")")
+    conn1.commit()
+    #cursor1.close()
+
+
+def connDb(dbName):
+    conn = sqlite3.connect(dbName,check_same_thread = False) # VERY IMP ARGUMENT!!!! WITHOUT THIS, PROGRAM WILL GIVE THREADING PROBLEM
+    return(conn)    
+
+
+def closeDb(conn):
+    conn.close()
+    
+        
+def createTb(tbName,conn1):
+    cursor1 = conn1.cursor()
+    #print tbName
+    printIt("Inside Create table",PFlag)
+    query = ("CREATE TABLE " + tbName + " (ticker text, tmst datetime,price decimal(5,5))")
+    #print query
+    cursor1.execute(query)
+    conn1.commit()
+    cursor1.close()
+
+
+def printIt(msg,PFlag):
+    if PFlag=="Y":
+        print "%s: %s"% (datetime.datetime.now(),msg)
+    else:
+        pass
+
+
+#Parameters used -----------------------------
+PFlag = "N"
+nseEnd = datetime.datetime.now().replace(hour=22, minute=23, second=55, microsecond=0)
+dbName = "infy.db"
+
+
+
+#Main method -----------------------------
+"""loop around the base table to pick up all the tickers one by one and call the main loop repeatedly - WITHOUT multithreading"""
+'Connect to the database once and for all'
+connB = connDb(dbName)
+cursorB = connB.cursor()
+'Fetch all the tickers and loop for all of them'
+cursorB.execute("SELECT * FROM infy_base")
+rows = cursorB.fetchall()
+cursorB.close()
+row1 = [x[0] for x in rows]
+for y in range (0,len(row1)):
+    tbName=str(row1[y]).replace(".","") + str(str(datetime.date.today()).replace("-",""))
+    'create the table for the current ticker'
+    createTb(tbName,connB)
+    'start the theft!'
+    connT = connDb(dbName)
+    cursorT = connT.cursor()
+    t = threading.Thread(target=run, args = (row1[y],connT,cursorT))
+    t.daemon = True
+    t.start()
